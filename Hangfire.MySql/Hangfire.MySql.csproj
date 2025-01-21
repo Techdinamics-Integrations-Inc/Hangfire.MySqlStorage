@@ -10,6 +10,8 @@
     <PackageProjectUrl>https://github.com/arnoldasgudas/Hangfire.MySqlStorage</PackageProjectUrl>
     <Copyright>Copyright 2015</Copyright>
     <PackageTags>Hangfire MySql Hangfire.MySql</PackageTags>
+    <Version>1.0.1</Version>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Install.sql" />
