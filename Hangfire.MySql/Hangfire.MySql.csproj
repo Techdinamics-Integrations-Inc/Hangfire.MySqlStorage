@@ -10,7 +10,7 @@
     <PackageProjectUrl>https://github.com/arnoldasgudas/Hangfire.MySqlStorage</PackageProjectUrl>
     <Copyright>Copyright 2015</Copyright>
     <PackageTags>Hangfire MySql Hangfire.MySql Techdinamics</PackageTags>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
   <ItemGroup>

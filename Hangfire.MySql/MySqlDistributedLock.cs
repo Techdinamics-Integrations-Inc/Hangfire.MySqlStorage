@@ -26,6 +26,12 @@ namespace Hangfire.MySql
         {
             _storage = storage;          
         }
+        
+        public MySqlDistributedLock(MySqlStorage storage, string resource, TimeSpan timeout, MySqlStorageOptions storageOptions, CancellationToken cancellationToken)
+            : this(storage.CreateAndOpenConnection(), resource, timeout, storageOptions, cancellationToken)
+        {
+            _storage = storage;          
+        }
 
         private readonly IDbConnection _connection;
 
