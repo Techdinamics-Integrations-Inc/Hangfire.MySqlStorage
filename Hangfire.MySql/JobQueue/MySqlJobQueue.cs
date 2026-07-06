@@ -131,7 +131,7 @@ namespace Hangfire.MySql.JobQueue
                 }
             } while (fetchedJob == null);
 
-            return new MySqlFetchedJob(_storage, connection, fetchedJob, _options);
+            return new MySqlFetchedJob(_storage, fetchedJob, _options);
         }
 
         public void Enqueue(IDbConnection connection, string queue, string jobId)

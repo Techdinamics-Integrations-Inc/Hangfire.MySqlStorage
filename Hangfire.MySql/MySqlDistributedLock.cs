@@ -17,23 +17,35 @@ namespace Hangfire.MySql
         private readonly DateTime _start;
         private readonly CancellationToken _cancellationToken;
 
+        // Non-null only when the lock borrows a caller-owned connection (e.g. ExpirationManager).
+        // In that case the lock must NOT dispose it. When null, DB work goes through
+        // _storage.UseConnection(...) so a pooled connection is acquired and released per operation
+        // and nothing is held across the acquire polling loop.
+        private readonly IDbConnection _connection;
+
         private const int DelayBetweenPasses = 100;
         private const string LOCK_SCHEDULE_POLLER = "locks:schedulepoller";
         private const string LOCK_RECURRING_JOBS = "recurring-jobs:lock";
 
         public MySqlDistributedLock(MySqlStorage storage, string resource, TimeSpan timeout, MySqlStorageOptions storageOptions)
-            : this(storage.CreateAndOpenConnection(), resource, timeout, storageOptions)
+            : this(storage, resource, timeout, storageOptions, new CancellationToken())
         {
-            _storage = storage;          
-        }
-        
-        public MySqlDistributedLock(MySqlStorage storage, string resource, TimeSpan timeout, MySqlStorageOptions storageOptions, CancellationToken cancellationToken)
-            : this(storage.CreateAndOpenConnection(), resource, timeout, storageOptions, cancellationToken)
-        {
-            _storage = storage;          
         }
 
-        private readonly IDbConnection _connection;
+        public MySqlDistributedLock(MySqlStorage storage, string resource, TimeSpan timeout, MySqlStorageOptions storageOptions, CancellationToken cancellationToken)
+        {
+            Logger.TraceFormat("MySqlDistributedLock resource={0}, timeout={1}", resource, timeout);
+
+            if (storage == null) throw new ArgumentNullException("storage");
+            if (storageOptions == null) throw new ArgumentNullException("storageOptions");
+
+            _storage = storage;
+            _storageOptions = storageOptions;
+            _resource = resource;
+            _timeout = timeout;
+            _cancellationToken = cancellationToken;
+            _start = DateTime.UtcNow;
+        }
 
         public MySqlDistributedLock(IDbConnection connection, string resource, TimeSpan timeout, MySqlStorageOptions storageOptions)
             : this(connection, resource, timeout, storageOptions, new CancellationToken())
@@ -45,10 +57,13 @@ namespace Hangfire.MySql
         {
             Logger.TraceFormat("MySqlDistributedLock resource={0}, timeout={1}", resource, timeout);
 
+            if (connection == null) throw new ArgumentNullException("connection");
+            if (storageOptions == null) throw new ArgumentNullException("storageOptions");
+
+            _connection = connection;
             _storageOptions = storageOptions;
             _resource = resource;
             _timeout = timeout;
-            _connection = connection;
             _cancellationToken = cancellationToken;
             _start = DateTime.UtcNow;
         }
@@ -57,14 +72,26 @@ namespace Hangfire.MySql
             get { return _resource; }
         }
 
+        // Routes a DB operation to the borrowed connection (owned by the caller, not disposed here)
+        // or to a fresh pooled connection that is opened and released immediately.
+        private int UseConnection(Func<IDbConnection, int> action)
+        {
+            if (_connection != null)
+            {
+                return action(_connection);
+            }
+
+            return _storage.UseConnection(connection => action(connection));
+        }
+
         private int AcquireLock(string resource, TimeSpan timeout)
         {
             if ((resource == LOCK_SCHEDULE_POLLER || resource == LOCK_RECURRING_JOBS) && MySqlStorageConnection.UseCustomScheduler)
                 return 1;
 
             return MySqlStorageConnection.AttemptActionReturnObject(() =>
-
-                    _connection
+                UseConnection(connection =>
+                    connection
                     .Execute(
                         "SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; " +
                         $"INSERT INTO `{_storageOptions.TablesPrefix}DistributedLock` (Resource, CreatedAt) " +
@@ -73,23 +100,20 @@ namespace Hangfire.MySql
                         "  WHERE NOT EXISTS ( " +
                         $"  		SELECT * FROM `{_storageOptions.TablesPrefix}DistributedLock` " +
                         "     	WHERE Resource = @resource " +
-                        "       AND CreatedAt > @expired);", 
+                        "       AND CreatedAt > @expired);",
                         new
                         {
                             resource,
-                            now = DateTime.UtcNow, 
+                            now = DateTime.UtcNow,
                             expired = DateTime.UtcNow.Add(timeout.Negate())
-                        }));
+                        })));
         }
 
         public void Dispose()
         {
             Release();
-
-            if (_storage != null)
-            {
-                _storage.ReleaseConnection(_connection);
-            }
+            // Pooled connections are released inside UseConnection per operation; a borrowed
+            // connection is owned by the caller, so there is nothing to release here.
         }
 
         public MySqlDistributedLock Acquire()
@@ -125,19 +149,20 @@ namespace Hangfire.MySql
         internal void Release()
         {
             Logger.TraceFormat("Release resource={0}", _resource);
-            
+
             if ((_resource == LOCK_SCHEDULE_POLLER || _resource == LOCK_RECURRING_JOBS) && MySqlStorageConnection.UseCustomScheduler)
                 return;
 
 
-            _connection
+            UseConnection(connection =>
+                connection
                 .Execute(
                     $"DELETE FROM `{_storageOptions.TablesPrefix}DistributedLock`  " +
                     "WHERE Resource = @resource",
                     new
                     {
                         resource = _resource
-                    });
+                    }));
         }
 
         public int CompareTo(object obj)
@@ -147,7 +172,7 @@ namespace Hangfire.MySql
             var mySqlDistributedLock = obj as MySqlDistributedLock;
             if (mySqlDistributedLock != null)
                 return string.Compare(this.Resource, mySqlDistributedLock.Resource, StringComparison.OrdinalIgnoreCase);
-            
+
             throw new ArgumentException("Object is not a mySqlDistributedLock");
         }
     }

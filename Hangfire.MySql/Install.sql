@@ -83,8 +83,14 @@ CREATE TABLE `[tablesPrefix]JobQueue` (
   `FetchedAt` datetime(6) DEFAULT NULL,
   `Queue` nvarchar(50) NOT NULL,
   `FetchToken` nvarchar(36) DEFAULT NULL,
+  `Priority`   int DEFAULT 0 NOT NULL,
   PRIMARY KEY (`Id`),
-  INDEX `IX_[tablesPrefix]JobQueue_QueueAndFetchedAt` (`Queue`,`FetchedAt`)
+  INDEX `IX_[tablesPrefix]JobQueue_QueueAndFetchedAt` (`Queue`,`FetchedAt`, `Priority`, `JobId`),
+  INDEX `IX_[tablesPrefix]JobQueue_FetchToken` (`FetchToken`),
+  INDEX `IX_[tablesPrefix]JobQueue_FetchedAt` (`FetchedAt`),
+  INDEX `IX_[tablesPrefix]JobQueue_JobId` (`JobId`),
+  INDEX `IX_[tablesPrefix]JobQueue_PriorityJobId` (`Priority`, `JobId`),
+  INDEX `IX_[tablesPrefix]JobQueue_QueueJobId` (`Queue`, `JobId`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
 -- ----------------------------

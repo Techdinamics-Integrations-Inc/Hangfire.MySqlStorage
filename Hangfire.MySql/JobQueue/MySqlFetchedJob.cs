@@ -1,5 +1,4 @@
-﻿using System;
-using System.Data;
+using System;
 using System.Globalization;
 using Dapper;
 using Hangfire.Logging;
@@ -12,7 +11,6 @@ namespace Hangfire.MySql.JobQueue
         private static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlFetchedJob));
 
         private readonly MySqlStorage _storage;
-        private readonly IDbConnection _connection;
         private readonly MySqlStorageOptions _storageOptions;
         private readonly int _id;
         private bool _removedFromQueue;
@@ -20,34 +18,29 @@ namespace Hangfire.MySql.JobQueue
         private bool _disposed;
 
         public MySqlFetchedJob(
-            MySqlStorage storage, 
-            IDbConnection connection,
+            MySqlStorage storage,
             FetchedJob fetchedJob,
             MySqlStorageOptions storageOptions)
         {
             if (storage == null) throw new ArgumentNullException("storage");
-            if (connection == null) throw new ArgumentNullException("connection");
             if (fetchedJob == null) throw new ArgumentNullException("fetchedJob");
+            if (storageOptions == null) throw new ArgumentNullException("storageOptions");
 
             _storage = storage;
-            _connection = connection;
             _storageOptions = storageOptions;
             _id = fetchedJob.Id;
             JobId = fetchedJob.JobId.ToString(CultureInfo.InvariantCulture);
-            Queue = fetchedJob.Queue; 
+            Queue = fetchedJob.Queue;
         }
 
         public void Dispose()
         {
-
             if (_disposed) return;
 
             if (!_removedFromQueue && !_requeued)
             {
                 Requeue();
             }
-
-            _storage.ReleaseConnection(_connection);
 
             _disposed = true;
         }
@@ -59,13 +52,13 @@ namespace Hangfire.MySql.JobQueue
             //todo: unit test
             Retry.Do(() =>
             {
-                _connection.Execute(
+                _storage.UseConnection(connection => connection.Execute(
                     $"delete from `{_storageOptions.TablesPrefix}JobQueue` " +
                     "where Id = @id",
                     new
                     {
                         id = _id
-                    });
+                    }));
             }, TimeSpan.FromSeconds(3), 10);
 
             _removedFromQueue = true;
@@ -78,13 +71,13 @@ namespace Hangfire.MySql.JobQueue
             //todo: unit test
             Retry.Do(() =>
             {
-                _connection.Execute(
+                _storage.UseConnection(connection => connection.Execute(
                     $"update `{_storageOptions.TablesPrefix}JobQueue` set FetchedAt = null " +
                     "where Id = @id",
                     new
                     {
                         id = _id
-                    });
+                    }));
                 _requeued = true;
             }, TimeSpan.FromSeconds(3), 10);
         }
